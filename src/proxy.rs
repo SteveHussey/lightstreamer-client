@@ -81,3 +81,49 @@ pub enum ProxyType {
     /// SOCKS5 proxy.
     Socks5,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_new_with_auth() {
+        let proxy = Proxy::new(
+            ProxyType::Http,
+            "proxy.example.com".to_string(),
+            8080,
+            Some("user".to_string()),
+            Some("pass".to_string()),
+        );
+        assert_eq!(proxy.get_proxy_type(), &ProxyType::Http);
+        assert_eq!(proxy.get_host(), "proxy.example.com");
+        assert_eq!(proxy.get_port(), 8080);
+        assert_eq!(proxy.get_user().unwrap(), "user");
+        assert_eq!(proxy.get_password().unwrap(), "pass");
+    }
+
+    #[test]
+    fn test_new_without_auth() {
+        let proxy = Proxy::new(
+            ProxyType::Socks5,
+            "socks.example.com".to_string(),
+            1080,
+            None,
+            None,
+        );
+        assert_eq!(proxy.get_proxy_type(), &ProxyType::Socks5);
+        assert_eq!(proxy.get_host(), "socks.example.com");
+        assert_eq!(proxy.get_port(), 1080);
+        assert!(proxy.get_user().is_none());
+        assert!(proxy.get_password().is_none());
+    }
+
+    #[test]
+    fn test_proxy_port_range_valid() {
+        let proxy = Proxy::new(ProxyType::Http, "host".to_string(), 1, None, None);
+        assert_eq!(proxy.get_port(), 1);
+
+        let proxy = Proxy::new(ProxyType::Http, "host".to_string(), 65535, None, None);
+        assert_eq!(proxy.get_port(), 65535);
+    }
+}

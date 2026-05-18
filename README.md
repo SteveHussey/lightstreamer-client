@@ -15,6 +15,8 @@
 
 <!-- Quality & Metrics -->
 [![Dependencies](https://deps.rs/repo/github/daniloaz/lightstreamer-client/status.svg)](https://deps.rs/repo/github/daniloaz/lightstreamer-client)
+[![CI](https://github.com/daniloaz/lightstreamer-client/actions/workflows/ci.yml/badge.svg)](https://github.com/daniloaz/lightstreamer-client/actions/workflows/ci.yml)
+[![Coverage](https://codecov.io/gh/daniloaz/lightstreamer-client/branch/main/graph/badge.svg)](https://codecov.io/gh/daniloaz/lightstreamer-client)
 [![Code Size](https://img.shields.io/github/languages/code-size/daniloaz/lightstreamer-client.svg?color=orange)](https://github.com/daniloaz/lightstreamer-client)
 [![Contributors](https://img.shields.io/github/contributors/daniloaz/lightstreamer-client.svg)](https://github.com/daniloaz/lightstreamer-client/graphs/contributors)
 [![Last Commit](https://img.shields.io/github/last-commit/daniloaz/lightstreamer-client.svg)](https://github.com/daniloaz/lightstreamer-client/commits/main)
@@ -66,7 +68,7 @@ use lightstreamer_client::subscription::{Subscription, SubscriptionMode};
 async fn main() {
     // Create a Lightstreamer client
     let client = LightstreamerClient::new(
-        Some("http://push.lightstreamer.com/lightstreamer"), // Lightstreamer server
+        Some("https://push.lightstreamer.com/lightstreamer"), // Lightstreamer server
         Some("DEMO"), // adapter set
         None, // username
         None, // password

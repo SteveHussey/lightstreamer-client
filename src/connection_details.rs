@@ -395,3 +395,288 @@ impl Default for ConnectionDetails {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn test_new_success() {
+        let details = ConnectionDetails::new(
+            Some("http://localhost:8080"),
+            Some("DEMO"),
+            Some("user"),
+            Some("pass"),
+        );
+        assert!(details.is_ok());
+        let details = details.unwrap();
+        assert_eq!(
+            details.get_server_address().unwrap(),
+            "http://localhost:8080"
+        );
+        assert_eq!(details.get_adapter_set().unwrap(), "DEMO");
+        assert_eq!(details.get_user().unwrap(), "user");
+        assert_eq!(details.get_password().unwrap(), "pass");
+    }
+
+    #[test]
+    fn test_new_no_credentials() {
+        let details =
+            ConnectionDetails::new(Some("http://localhost:8080"), Some("DEMO"), None, None);
+        assert!(details.is_ok());
+        let details = details.unwrap();
+        assert!(details.get_user().is_none());
+        assert!(details.get_password().is_none());
+    }
+
+    #[test]
+    fn test_new_no_server_address() {
+        let details = ConnectionDetails::new(None, Some("DEMO"), None, None);
+        assert!(details.is_ok());
+        let details = details.unwrap();
+        assert!(details.get_server_address().is_none());
+    }
+
+    #[test]
+    fn test_set_server_address_valid_http() {
+        let mut details = ConnectionDetails::default();
+        assert!(details
+            .set_server_address(Some("http://localhost:8080".to_string()))
+            .is_ok());
+        assert_eq!(
+            details.get_server_address().unwrap(),
+            "http://localhost:8080"
+        );
+    }
+
+    #[test]
+    fn test_set_server_address_valid_https() {
+        let mut details = ConnectionDetails::default();
+        assert!(details
+            .set_server_address(Some("https://secure.example.com".to_string()))
+            .is_ok());
+        assert_eq!(
+            details.get_server_address().unwrap(),
+            "https://secure.example.com"
+        );
+    }
+
+    #[test]
+    fn test_set_server_address_invalid_scheme() {
+        let mut details = ConnectionDetails::default();
+        let result = details.set_server_address(Some("ftp://example.com".to_string()));
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("http:// or https://"));
+    }
+
+    #[test]
+    fn test_set_server_address_invalid_scheme_ws() {
+        let mut details = ConnectionDetails::default();
+        let result = details.set_server_address(Some("ws://example.com".to_string()));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_set_server_address_none() {
+        let mut details = ConnectionDetails::default();
+        assert!(details.set_server_address(None).is_ok());
+        assert!(details.get_server_address().is_none());
+    }
+
+    #[test]
+    fn test_new_no_adapter_set() {
+        let details = ConnectionDetails::new(Some("http://localhost:8080"), None, None, None);
+        assert!(details.is_ok());
+        let details = details.unwrap();
+        assert_eq!(details.get_adapter_set().unwrap(), "DEFAULT");
+    }
+
+    #[test]
+    fn test_set_adapter_set() {
+        let mut details = ConnectionDetails::default();
+        details.set_adapter_set(Some("MY_ADAPTER".to_string()));
+        assert_eq!(details.get_adapter_set().unwrap(), "MY_ADAPTER");
+    }
+
+    #[test]
+    fn test_set_adapter_set_none_defaults_to_default() {
+        let mut details = ConnectionDetails::default();
+        details.set_adapter_set(None);
+        assert_eq!(details.get_adapter_set().unwrap(), "DEFAULT");
+    }
+
+    #[test]
+    fn test_set_password() {
+        let mut details = ConnectionDetails::default();
+        details.set_password(Some("secret".to_string()));
+        assert_eq!(details.get_password().unwrap(), "secret");
+    }
+
+    #[test]
+    fn test_set_password_none() {
+        let mut details = ConnectionDetails::default();
+        details.set_password(Some("secret".to_string()));
+        details.set_password(None);
+        assert!(details.get_password().is_none());
+    }
+
+    #[test]
+    fn test_set_user() {
+        let mut details = ConnectionDetails::default();
+        details.set_user(Some("testuser".to_string()));
+        assert_eq!(details.get_user().unwrap(), "testuser");
+    }
+
+    #[test]
+    fn test_set_user_none() {
+        let mut details = ConnectionDetails::default();
+        details.set_user(Some("testuser".to_string()));
+        details.set_user(None);
+        assert!(details.get_user().is_none());
+    }
+
+    #[test]
+    fn test_getters_all_none_by_default() {
+        let details = ConnectionDetails::default();
+        assert!(details.get_client_ip().is_none());
+        assert!(details.get_server_instance_address().is_none());
+        assert!(details.get_server_socket_name().is_none());
+        assert!(details.get_session_id().is_none());
+    }
+
+    #[test]
+    fn test_set_server_address_preserves_path() {
+        let mut details = ConnectionDetails::default();
+        assert!(details
+            .set_server_address(Some("http://example.com/path/to/ls".to_string()))
+            .is_ok());
+        assert_eq!(
+            details.get_server_address().unwrap(),
+            "http://example.com/path/to/ls"
+        );
+    }
+
+    #[test]
+    fn test_connection_details_adapter_set_notifies_listeners() {
+        let mut details = ConnectionDetails::default();
+        let notified = Arc::new(Mutex::new(Vec::new()));
+        let notified_clone = notified.clone();
+
+        details.add_listener(Box::new(TestClientListener {
+            on_property_change_callback: Box::new(move |prop| {
+                notified_clone.lock().unwrap().push(prop.to_string());
+            }),
+            ..Default::default()
+        }));
+
+        details.set_adapter_set(Some("DEMO".to_string()));
+
+        let props = notified.lock().unwrap();
+        assert_eq!(props.len(), 1);
+        assert_eq!(props[0], "adapterSet");
+    }
+
+    #[test]
+    fn test_connection_details_server_address_notifies_listeners() {
+        let mut details = ConnectionDetails::default();
+        let notified = Arc::new(Mutex::new(Vec::new()));
+        let notified_clone = notified.clone();
+
+        details.add_listener(Box::new(TestClientListener {
+            on_property_change_callback: Box::new(move |prop| {
+                notified_clone.lock().unwrap().push(prop.to_string());
+            }),
+            ..Default::default()
+        }));
+
+        details
+            .set_server_address(Some("http://example.com".to_string()))
+            .unwrap();
+
+        let props = notified.lock().unwrap();
+        assert_eq!(props.len(), 1);
+        assert_eq!(props[0], "serverAddress");
+    }
+
+    #[test]
+    fn test_connection_details_password_notifies_listeners() {
+        let mut details = ConnectionDetails::default();
+        let notified = Arc::new(Mutex::new(Vec::new()));
+        let notified_clone = notified.clone();
+
+        details.add_listener(Box::new(TestClientListener {
+            on_property_change_callback: Box::new(move |prop| {
+                notified_clone.lock().unwrap().push(prop.to_string());
+            }),
+            ..Default::default()
+        }));
+
+        details.set_password(Some("secret".to_string()));
+
+        let props = notified.lock().unwrap();
+        assert_eq!(props.len(), 1);
+        assert_eq!(props[0], "password");
+    }
+
+    #[test]
+    fn test_connection_details_user_notifies_listeners() {
+        let mut details = ConnectionDetails::default();
+        let notified = Arc::new(Mutex::new(Vec::new()));
+        let notified_clone = notified.clone();
+
+        details.add_listener(Box::new(TestClientListener {
+            on_property_change_callback: Box::new(move |prop| {
+                notified_clone.lock().unwrap().push(prop.to_string());
+            }),
+            ..Default::default()
+        }));
+
+        details.set_user(Some("admin".to_string()));
+
+        let props = notified.lock().unwrap();
+        assert_eq!(props.len(), 1);
+        assert_eq!(props[0], "user");
+    }
+
+    // ============================================================
+    // Helper test listener struct
+    // ============================================================
+
+    struct TestClientListener {
+        on_status_change_callback: Box<dyn Fn(&str) + Send>,
+        on_server_error_callback: Box<dyn Fn(i32, &str) + Send>,
+        on_property_change_callback: Box<dyn Fn(&str) + Send>,
+    }
+
+    impl Default for TestClientListener {
+        fn default() -> Self {
+            TestClientListener {
+                on_status_change_callback: Box::new(|_| {}),
+                on_server_error_callback: Box::new(|_, _| {}),
+                on_property_change_callback: Box::new(|_| {}),
+            }
+        }
+    }
+
+    impl Debug for TestClientListener {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.debug_struct("TestClientListener").finish()
+        }
+    }
+
+    impl ClientListener for TestClientListener {
+        fn on_property_change(&self, property: &str) {
+            (self.on_property_change_callback)(property);
+        }
+
+        fn on_server_error(&self, code: i32, message: &str) {
+            (self.on_server_error_callback)(code, message);
+        }
+
+        fn on_status_change(&self, status: &str) {
+            (self.on_status_change_callback)(status);
+        }
+    }
+}

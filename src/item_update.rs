@@ -239,3 +239,140 @@ impl ItemUpdate {
         unimplemented!()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn create_test_update() -> ItemUpdate {
+        let mut fields: HashMap<String, Option<String>> = HashMap::new();
+        fields.insert("price".to_string(), Some("100".to_string()));
+        fields.insert("volume".to_string(), Some("50".to_string()));
+        fields.insert("status".to_string(), Some("active".to_string()));
+
+        let mut changed_fields: HashMap<String, String> = HashMap::new();
+        changed_fields.insert("price".to_string(), "100".to_string());
+        changed_fields.insert("volume".to_string(), "50".to_string());
+
+        ItemUpdate {
+            item_name: Some("ITEM1".to_string()),
+            item_pos: 1,
+            fields,
+            changed_fields,
+            is_snapshot: false,
+        }
+    }
+
+    #[test]
+    fn test_get_data_fields() {
+        let update = create_test_update();
+
+        assert_eq!(update.get_item_name(), Some("ITEM1"));
+        assert_eq!(update.get_item_pos(), 1);
+        let fields = update.get_fields();
+        assert_eq!(fields.len(), 3);
+        assert_eq!(fields.get("price").unwrap(), &Some("100".to_string()));
+        assert_eq!(fields.get("volume").unwrap(), &Some("50".to_string()));
+        assert_eq!(fields.get("status").unwrap(), &Some("active".to_string()));
+        let changed = update.get_changed_fields();
+        assert_eq!(changed.len(), 2);
+        assert_eq!(changed.get("price").unwrap(), "100");
+        assert_eq!(changed.get("volume").unwrap(), "50");
+        assert!(!update.is_snapshot());
+    }
+
+    #[test]
+    fn test_is_value_changed() {
+        let update = create_test_update();
+        assert!(update.is_value_changed("price"));
+        assert!(update.is_value_changed("volume"));
+        assert!(!update.is_value_changed("status"));
+        assert!(!update.is_value_changed("nonexistent"));
+    }
+
+    #[test]
+    fn test_get_value_as_json_patch_if_available_returns_none() {
+        let update = create_test_update();
+        assert!(update
+            .get_value_as_json_patch_if_available("price")
+            .is_none());
+    }
+
+    #[test]
+    fn test_clone() {
+        let original = create_test_update();
+        let cloned = original.clone();
+        assert!(!std::ptr::eq(&original, &cloned));
+        assert_eq!(original.get_item_name(), cloned.get_item_name());
+        assert_eq!(original.get_item_pos(), cloned.get_item_pos());
+        assert_eq!(original.is_snapshot(), cloned.is_snapshot());
+        assert_eq!(original.get_fields(), cloned.get_fields());
+        assert_eq!(original.get_changed_fields(), cloned.get_changed_fields());
+    }
+
+    #[test]
+    fn test_serialization() {
+        let mut fields: HashMap<String, Option<String>> = HashMap::new();
+        fields.insert("name".to_string(), Some("test".to_string()));
+
+        let update = ItemUpdate {
+            item_name: Some("ITEM1".to_string()),
+            item_pos: 1,
+            fields,
+            changed_fields: HashMap::new(),
+            is_snapshot: true,
+        };
+
+        let json = serde_json::to_string(&update).unwrap();
+        assert!(json.contains("ITEM1"));
+        assert!(json.contains("name"));
+        assert!(json.contains("test"));
+        assert!(json.contains("true"));
+    }
+
+    #[test]
+    fn test_all_fields_none() {
+        let mut fields: HashMap<String, Option<String>> = HashMap::new();
+        fields.insert("a".to_string(), None);
+        fields.insert("b".to_string(), Some("".to_string()));
+        fields.insert("c".to_string(), Some("value".to_string()));
+
+        let update = ItemUpdate {
+            item_name: None,
+            item_pos: 0,
+            fields,
+            changed_fields: HashMap::new(),
+            is_snapshot: false,
+        };
+
+        assert!(update.get_value("a").is_none());
+        assert_eq!(update.get_value("b"), Some(""));
+        assert_eq!(update.get_value("c"), Some("value"));
+        assert_eq!(update.get_changed_fields().len(), 0);
+    }
+
+    #[test]
+    fn test_mixed_field_values() {
+        let mut fields: HashMap<String, Option<String>> = HashMap::new();
+        fields.insert("a".to_string(), Some("val".to_string()));
+        fields.insert("b".to_string(), None);
+        fields.insert("c".to_string(), Some("".to_string()));
+        let mut changed: HashMap<String, String> = HashMap::new();
+        changed.insert("a".to_string(), "val".to_string());
+        changed.insert("c".to_string(), "".to_string());
+        let update = ItemUpdate {
+            item_name: None,
+            item_pos: 0,
+            fields,
+            changed_fields: changed,
+            is_snapshot: false,
+        };
+        assert_eq!(update.get_value("a"), Some("val"));
+        assert!(update.get_value("b").is_none());
+        assert_eq!(update.get_value("c"), Some(""));
+        assert!(update.is_value_changed("a"));
+        assert!(update.is_value_changed("c"));
+        assert!(!update.is_value_changed("b"));
+    }
+}

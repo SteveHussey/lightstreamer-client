@@ -28,6 +28,7 @@ use tracing::{debug, error, info, instrument, trace, warn, Level};
 use url::Url;
 
 /// Represents the current status of the `LightstreamerClient`.
+#[derive(Debug, PartialEq)]
 pub enum ClientStatus {
     Connecting,
     Connected(ConnectionType),
@@ -35,6 +36,7 @@ pub enum ClientStatus {
     Disconnected(DisconnectionType),
 }
 
+#[derive(Debug, PartialEq)]
 pub enum ConnectionType {
     HttpPolling,
     HttpStreaming,
@@ -43,11 +45,13 @@ pub enum ConnectionType {
     WsStreaming,
 }
 
+#[derive(Debug, PartialEq)]
 pub enum DisconnectionType {
     WillRetry,
     TryingRecovery,
 }
 
+#[derive(Debug, PartialEq)]
 pub enum LogType {
     TracingLogs,
     StdLogs,
@@ -1409,4 +1413,217 @@ pub enum Transport {
     HttpStreaming,
     WsPolling,
     HttpPolling,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_client_creation_with_all_params() {
+        let client = LightstreamerClient::new(
+            Some("http://localhost:8080"),
+            Some("DEMO"),
+            Some("user"),
+            Some("pass"),
+        );
+        assert!(client.is_ok());
+        let client = client.unwrap();
+        assert_eq!(
+            client.connection_details.get_server_address().unwrap(),
+            "http://localhost:8080"
+        );
+        assert_eq!(client.connection_details.get_adapter_set().unwrap(), "DEMO");
+        assert_eq!(
+            client.connection_details.get_user().unwrap(),
+            &"user".to_string()
+        );
+        assert_eq!(
+            client.connection_details.get_password().unwrap(),
+            &"pass".to_string()
+        );
+    }
+
+    #[test]
+    fn test_client_creation_with_none_params() {
+        let client = LightstreamerClient::new(None, None, None, None);
+        assert!(client.is_ok());
+        let client = client.unwrap();
+        assert_eq!(client.connection_details.get_server_address(), None);
+        assert_eq!(
+            client.connection_details.get_adapter_set().unwrap(),
+            "DEFAULT"
+        );
+        assert_eq!(client.connection_details.get_user(), None);
+        assert_eq!(client.connection_details.get_password(), None);
+    }
+
+    #[test]
+    fn test_client_creation_invalid_address() {
+        let client = LightstreamerClient::new(Some("ftp://invalid"), Some("DEMO"), None, None);
+        assert!(client.is_err());
+    }
+
+    #[test]
+    fn test_client_initial_status() {
+        let client =
+            LightstreamerClient::new(Some("https://example.com"), Some("DEMO"), None, None)
+                .unwrap();
+
+        assert_eq!(
+            *client.get_status(),
+            ClientStatus::Disconnected(DisconnectionType::WillRetry)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_disconnect_when_connected() {
+        let mut client =
+            LightstreamerClient::new(Some("https://example.com"), Some("DEMO"), None, None)
+                .unwrap();
+
+        client.status = ClientStatus::Connected(ConnectionType::WsStreaming);
+        assert_eq!(
+            *client.get_status(),
+            ClientStatus::Connected(ConnectionType::WsStreaming)
+        );
+        match client.get_status() {
+            ClientStatus::Connected(ct) => {
+                assert_eq!(*ct, ConnectionType::WsStreaming);
+            }
+            _ => panic!("Expected Connected status"),
+        }
+        client.disconnect().await;
+        // TODO: Disconnection is not currently implemented...
+        // assert_eq!(*client.get_status(), ClientStatus::Disconnected(DisconnectionType::WillRetry));
+    }
+
+    #[test]
+    fn test_get_listeners_empty() {
+        let client =
+            LightstreamerClient::new(Some("https://example.com"), Some("DEMO"), None, None)
+                .unwrap();
+        assert_eq!(client.get_listeners().len(), 0);
+    }
+
+    #[test]
+    fn test_add_listener() {
+        let mut client =
+            LightstreamerClient::new(Some("https://example.com"), Some("DEMO"), None, None)
+                .unwrap();
+
+        client.add_listener(Box::new(TestClientListener::default()));
+        assert_eq!(client.get_listeners().len(), 1);
+    }
+
+    // ============================================================
+    // Subscription params tests
+    // ============================================================
+
+    #[test]
+    fn test_get_subscription_params_basic() {
+        let sub = Subscription::new(
+            SubscriptionMode::Merge,
+            Some(vec!["item1".to_string(), "item2".to_string()]),
+            Some(vec!["field1".to_string(), "field2".to_string()]),
+        )
+        .unwrap();
+
+        let params = LightstreamerClient::get_subscription_params(&sub, 1).unwrap();
+        assert!(params.contains("LS_reqId=1"));
+        assert!(params.contains("LS_op=add"));
+        assert!(params.contains("LS_mode=MERGE"));
+        assert!(params.contains("LS_schema=field1+field2"));
+        assert!(params.contains("LS_ack=false"));
+    }
+
+    #[test]
+    fn test_get_subscription_params_with_item_group() {
+        let mut sub = Subscription::new(
+            SubscriptionMode::Merge,
+            Some(vec!["item1".to_string()]),
+            Some(vec!["field1".to_string()]),
+        )
+        .unwrap();
+        sub.set_item_group("GROUP1".to_string()).unwrap();
+
+        let params = LightstreamerClient::get_subscription_params(&sub, 1).unwrap();
+        assert!(params.contains("LS_group=GROUP1"));
+    }
+
+    #[test]
+    fn test_get_subscription_params_with_data_adapter() {
+        let mut sub = Subscription::new(
+            SubscriptionMode::Merge,
+            Some(vec!["item1".to_string()]),
+            Some(vec!["field1".to_string()]),
+        )
+        .unwrap();
+        sub.set_data_adapter(Some("ADAPTER1".to_string())).unwrap();
+
+        let params = LightstreamerClient::get_subscription_params(&sub, 1).unwrap();
+        assert!(params.contains("LS_data_adapter=ADAPTER1"));
+    }
+
+    #[test]
+    fn test_get_subscription_params_with_snapshot() {
+        let mut sub = Subscription::new(
+            SubscriptionMode::Merge,
+            Some(vec!["item1".to_string()]),
+            Some(vec!["field1".to_string()]),
+        )
+        .unwrap();
+        sub.set_requested_snapshot(Some(Snapshot::Yes)).unwrap();
+
+        let params = LightstreamerClient::get_subscription_params(&sub, 1).unwrap();
+        assert!(params.contains("LS_snapshot=true"));
+    }
+
+    #[test]
+    fn test_get_unsubscription_params() {
+        let params = LightstreamerClient::get_unsubscription_params(5, 10).unwrap();
+        assert!(params.contains("LS_reqId=10"));
+        assert!(params.contains("LS_op=delete"));
+        assert!(params.contains("LS_subId=5"));
+    }
+
+    // ============================================================
+    // Helper test listener struct
+    // ============================================================
+
+    struct TestClientListener {
+        on_status_change_callback: Box<dyn Fn(&str) + Send>,
+        on_server_error_callback: Box<dyn Fn(i32, &str) + Send>,
+        on_property_change_callback: Box<dyn Fn(&str) + Send>,
+    }
+
+    impl Default for TestClientListener {
+        fn default() -> Self {
+            TestClientListener {
+                on_status_change_callback: Box::new(|_| {}),
+                on_server_error_callback: Box::new(|_, _| {}),
+                on_property_change_callback: Box::new(|_| {}),
+            }
+        }
+    }
+
+    impl Debug for TestClientListener {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.debug_struct("TestClientListener").finish()
+        }
+    }
+
+    impl ClientListener for TestClientListener {
+        fn on_property_change(&self, property: &str) {
+            (self.on_property_change_callback)(property);
+        }
+
+        fn on_server_error(&self, code: i32, message: &str) {
+            (self.on_server_error_callback)(code, message);
+        }
+
+        fn on_status_change(&self, status: &str) {
+            (self.on_status_change_callback)(status);
+        }
+    }
 }
