@@ -134,9 +134,7 @@ fn get_subscription_by_id(
     subscriptions: &Vec<Subscription>,
     subscription_id: usize,
 ) -> Option<&Subscription> {
-    subscriptions
-        .iter()
-        .find(|sub| sub.id == subscription_id)
+    subscriptions.iter().find(|sub| sub.id == subscription_id)
 }
 
 impl Debug for LightstreamerClient {
@@ -208,12 +206,12 @@ impl LightstreamerClient {
     }
 
     /// Packs s string with the necessary parameters for a subscription request.
-    /// 
+    ///
     /// # Parameters
-    /// 
+    ///
     /// * `subscription`: The subscription for which to get the parameters.
     /// * `request_id`: The request ID to use in the parameters.
-    /// 
+    ///
     fn get_subscription_params(
         subscription: &Subscription,
         request_id: usize,
@@ -276,7 +274,7 @@ impl LightstreamerClient {
 
         Ok(serde_urlencoded::to_string(&params)?)
     }
-    
+
     fn get_unsubscription_params(
         subscription_id: usize,
         request_id: usize,
@@ -327,7 +325,10 @@ impl LightstreamerClient {
     ///
     /// See also `ConnectionDetails.setServerAddress()`
     #[instrument]
-    pub async fn connect(&mut self, shutdown_signal: Arc<Notify>) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub async fn connect(
+        &mut self,
+        shutdown_signal: Arc<Notify>,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         // Check if the server address is configured.
         if self.server_address.is_none() {
             return Err(Box::new(IllegalStateException::new(
@@ -525,7 +526,7 @@ impl LightstreamerClient {
                                         self.make_log( Level::INFO, &format!("Subscription confirmed by server: '{}'", clean_text) );
                                     },
                                     //
-                                    // Usubscription confirmation from server.
+                                    // Unsubscription confirmation from server.
                                     //
                                     "unsub" => {
                                         self.make_log( Level::INFO, &format!("Unsubscription confirmed by server: '{}'", clean_text) );
@@ -690,10 +691,10 @@ impl LightstreamerClient {
                                                         {
                                                             continue;
                                                         }
-                                                        
+
                                                         payload = json;
                                                     }
-                                                    
+
                                                     if let Some(field_name) = subscription_fields.and_then(|fields| fields.get(field_index)) {
                                                         field_map.insert(field_name.to_string(), Some(payload.to_string()));
                                                     }
@@ -873,7 +874,7 @@ impl LightstreamerClient {
                         write_stream
                             .send(Message::Text(format!("control\r\n{}", encoded_params).into()))
                             .await?;
-                        
+
                         self.make_log( Level::INFO, &format!("Sent subscription request: '{}'", encoded_params) );
                     }
                     // Process unsubscription requests.
@@ -887,15 +888,15 @@ impl LightstreamerClient {
                                 return Err(err);
                             },
                         };
-                        
+
                         write_stream
                             .send(Message::Text(format!("control\r\n{}", encoded_params).into()))
                             .await?;
-                        
+
                         self.make_log( Level::INFO, &format!("Sent unsubscription request: '{}'", encoded_params) );
-                        
+
                         self.subscriptions.retain(|s| s.id != unsubscription_id);
-                        
+
                         if self.subscriptions.is_empty()
                         {
                             self.make_log( Level::INFO, &"No more subscriptions, disconnecting".to_string() );
@@ -932,7 +933,7 @@ impl LightstreamerClient {
     #[instrument]
     pub async fn disconnect(&mut self) {
         // Implementation for disconnect
-        self.make_log( Level::INFO, "Disconnecting from Lightstreamer server" );
+        self.make_log(Level::INFO, "Disconnecting from Lightstreamer server");
     }
 
     /// Static inquiry method that can be used to share cookies between connections to the Server
@@ -1288,12 +1289,12 @@ impl LightstreamerClient {
     /// If you want to be able to unsubscribe from a subscription, you need to keep track of the id
     /// of the subscription. This blocking method allows you to wait for the id of the subscription
     /// to be returned.
-    /// 
+    ///
     /// # Parameters
-    /// 
+    ///
     /// * `subscription_sender`: A `Sender` object that sends a `SubscriptionRequest` to the `LightstreamerClient`
     /// * `subscription`: A `Subscription` object, carrying all the information needed to process real-time
-    /// 
+    ///
     pub async fn subscribe_get_id(
         subscription_sender: Sender<SubscriptionRequest>,
         subscription: Subscription,
@@ -1326,10 +1327,7 @@ impl LightstreamerClient {
     /// * `subscription_sender`: A `Sender` object that sends a `SubscriptionRequest` to the `LightstreamerClient`
     /// * `subscription_id`: The id of the subscription to be unsubscribed from.
     ///   instance.
-    pub fn unsubscribe(
-        subscription_sender: Sender<SubscriptionRequest>,
-        subscription_id: usize,
-    ) {
+    pub fn unsubscribe(subscription_sender: Sender<SubscriptionRequest>, subscription_id: usize) {
         subscription_sender
             .try_send(SubscriptionRequest {
                 subscription: None,
