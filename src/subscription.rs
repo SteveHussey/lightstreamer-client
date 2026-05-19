@@ -627,9 +627,6 @@ impl Subscription {
         if self.is_active && freq.is_none() {
             return Err("Cannot set unfiltered while active".to_string());
         }
-        if self.is_active && freq.is_none() {
-            return Err("Cannot set None while active".to_string());
-        }
         self.requested_max_frequency = freq;
         Ok(())
     }
