@@ -5,7 +5,7 @@ use std::fmt::{self, Debug, Formatter};
 use tokio::sync::watch::{self, Sender, Receiver};
 
 /// Enum representing the snapshot delivery preferences to be requested to Lightstreamer Server for the items in the Subscription.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq)]
 pub enum Snapshot {
     Yes,
     No,
@@ -670,21 +670,27 @@ impl Subscription {
         if self.is_active {
             return Err("Subscription is active".to_string());
         }
-        // TODO: The logic below does not match the description above
         match snapshot {
-            Some(Snapshot::None) => {
-                if self.mode == SubscriptionMode::Raw {
-                    return Err("Cannot request snapshot for Raw mode".to_string());
+            Some(snapshot) => {
+                match self.mode {
+                    SubscriptionMode::Merge | SubscriptionMode::Command => {
+                        if matches!(snapshot, Snapshot::Number(_)) {
+                            return Err(
+                                "Cannot specify snapshot length for non-Distinct mode".to_string()
+                            );
+                        }
+                    }
+                    SubscriptionMode::Raw => {
+                        if snapshot != Snapshot::None {
+                            return Err("Cannot request snapshot for Raw mode".to_string());
+                        }
+                    }
+                    SubscriptionMode::Distinct => { /* All Snapshot types allowed */ }
                 }
+                self.requested_snapshot = Some(snapshot)
             }
-            Some(Snapshot::Number(_)) => {
-                if self.mode != SubscriptionMode::Distinct {
-                    return Err("Cannot specify snapshot length for non-Distinct mode".to_string());
-                }
-            }
-            _ => {}
+            None => self.requested_snapshot = snapshot,
         }
-        self.requested_snapshot = snapshot;
         Ok(())
     }
 
@@ -1252,16 +1258,15 @@ mod tests {
             Some(vec!["field1".to_string()]),
         )
         .unwrap();
-        // TODO: The implemented logic is not correct, so commented out for now...
-        // let result = sub.set_requested_snapshot(Some(Snapshot::None));
-        // assert!(result.is_ok());
-        // let result = sub.set_requested_snapshot(Some(Snapshot::Yes));
-        // assert!(result.is_err());
-        // assert_eq!(result.unwrap_err(), "Cannot request snapshot for Raw mode");
-        // let result = sub.set_requested_snapshot(Some(Snapshot::No));
-        // assert!(result.is_err());
-        // let result = sub.set_requested_snapshot(Some(Snapshot::Number(10)));
-        // assert!(result.is_err());
+        assert!(sub.set_requested_snapshot(None).is_ok());
+        assert!(sub.set_requested_snapshot(Some(Snapshot::None)).is_ok());
+        let result = sub.set_requested_snapshot(Some(Snapshot::Yes));
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Cannot request snapshot for Raw mode");
+        assert!(sub.set_requested_snapshot(Some(Snapshot::No)).is_err());
+        assert!(sub
+            .set_requested_snapshot(Some(Snapshot::Number(10)))
+            .is_err());
     }
 
     #[test]
