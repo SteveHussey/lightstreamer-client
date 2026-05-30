@@ -127,6 +127,10 @@ pub struct LightstreamerClient {
     pub subscription_sender: Sender<SubscriptionRequest>,
     /// The receiver used for subscribe/unsubsribe
     subscription_receiver: Receiver<SubscriptionRequest>,
+    /// Session ID received from the server in the `conok` message.
+    session_id: Option<String>,
+    /// Signal used to disconnect the connection
+    disconnect_signal: Arc<Notify>,
 }
 
 /// Retrieve a reference to a subscription with the given `id`
@@ -146,6 +150,7 @@ impl Debug for LightstreamerClient {
             .field("connection_options", &self.connection_options)
             .field("listeners", &self.listeners)
             .field("subscriptions", &self.subscriptions)
+            .field("session_id", &self.session_id)
             .finish()
     }
 }
@@ -440,7 +445,6 @@ impl LightstreamerClient {
         //
         // Start reading and processing messages from the server.
         //
-        let mut is_connected = false;
         let mut request_id: usize = 0;
         let mut subscription_id: usize = 0;
         let mut subscription_item_updates: HashMap<usize, HashMap<usize, ItemUpdate>> =
@@ -470,8 +474,8 @@ impl LightstreamerClient {
                                     // Session created successfully.
                                     //
                                     "conok" => {
-                                        is_connected = true;
                                         if let Some(session_id) = submessage_fields.get(1).as_deref() {
+                                            self.session_id = Some(session_id.to_string());
                                             self.make_log( Level::DEBUG, &format!("Session creation confirmed by server: {}", clean_text) );
                                             self.make_log( Level::DEBUG, &format!("Session created with ID: {:?}", session_id) );
                                             //
@@ -855,7 +859,7 @@ impl LightstreamerClient {
                         self.subscriptions.push(subscription_request.subscription.unwrap());
 
                         // if we are not connected yet, we will subscribe later
-                        if !is_connected {
+                        if !self.is_connected() {
                             continue;
                         }
 
@@ -900,16 +904,43 @@ impl LightstreamerClient {
                         if self.subscriptions.is_empty()
                         {
                             self.make_log( Level::INFO, &"No more subscriptions, disconnecting".to_string() );
-                            shutdown_signal.notify_one();
+                            self.disconnect().await;
                         }
                     }
                 },
                 _ = shutdown_signal.notified() => {
-                    self.make_log( Level::INFO, &format!("Received shutdown signal") );
+                    // TODO: This is essentially redundant now, as the disconnect method now works as intended
+                    self.make_log( Level::INFO, "Received shutdown signal" );
+                    self.disconnect().await;
+                },
+                _ = self.disconnect_signal.notified() => {
+                    self.make_log( Level::INFO, "Received disconnect signal" );
+                    if self.is_connected() {
+                        request_id += 1;
+                        let req_id = request_id.to_string();
+                        let params: Vec<(&str, &str)> = vec![
+                            ("LS_reqId", &req_id),
+                            ("LS_op", "destroy"),
+                        ];
+                        let encoded_params = serde_urlencoded::to_string(&params)?;
+
+                        write_stream
+                            .send(Message::Text(format!("control\r\n{}", encoded_params).into()))
+                            .await?;
+                        self.make_log( Level::INFO, &format!("Sent session destroy request: '{}'", encoded_params) );
+                        self.session_id = None;
+                    }
                     break;
                 },
             }
         }
+
+        // Close the Web Socket connection gracefully
+        write_stream.close().await?;
+        write_stream.flush().await?;
+
+        // Intentionally drain the stream until it closes
+        read_stream.for_each(|_| async {}).await;
 
         Ok(())
     }
@@ -932,8 +963,10 @@ impl LightstreamerClient {
     /// See also `connect()`
     #[instrument]
     pub async fn disconnect(&mut self) {
-        // Implementation for disconnect
-        self.make_log(Level::INFO, "Disconnecting from Lightstreamer server");
+        if self.is_connected() {
+            self.make_log(Level::INFO, "Disconnecting from Lightstreamer server");
+            self.disconnect_signal.notify_one();
+        }
     }
 
     /// Static inquiry method that can be used to share cookies between connections to the Server
@@ -1009,6 +1042,24 @@ impl LightstreamerClient {
         &self.subscriptions
     }
 
+    /// Returns the current session ID, if one is active.
+    ///
+    /// # Returns
+    ///
+    /// The session ID assigned by the server, or `None` if no session is active.
+    pub fn get_session_id(&self) -> Option<&str> {
+        self.session_id.as_deref()
+    }
+
+    /// Returns whether the client is currently connected to the server.
+    ///
+    /// # Returns
+    ///
+    /// `true` if a session is bound to the stream connection, `false` otherwise.
+    pub fn is_connected(&self) -> bool {
+        self.session_id.is_some()
+    }
+
     /// Creates a new instance of `LightstreamerClient`.
     ///
     /// The constructor initializes the client with the server address and adapter set, if provided.
@@ -1063,6 +1114,8 @@ impl LightstreamerClient {
             logging: LogType::StdLogs,
             subscription_sender,
             subscription_receiver,
+            session_id: None,
+            disconnect_signal: Arc::new(Notify::new()),
         })
     }
 
