@@ -952,7 +952,7 @@ impl LightstreamerClient {
     ///
     /// A list with the various cookies that can be sent in a HTTP request for the specified URI.
     /// If a `None` URI was supplied, all available non-expired cookies will be returned.
-    pub fn get_cookies(_uri: Option<&str>) -> Cookie {
+    pub fn get_cookies(_uri: Option<&str>) -> Cookie<'_> {
         // Implementation for get_cookies
         unimplemented!()
     }
