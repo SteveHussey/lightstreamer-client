@@ -811,7 +811,7 @@ impl LightstreamerClient {
                                         write_stream
                                             .send(Message::Text(format!("create_session\r\n{}\n", encoded_params).into()))
                                             .await?;
-                                        self.make_log( Level::DEBUG, &format!("Sent create session request: '{}'", encoded_params) );
+                                        self.make_log( Level::DEBUG, &format!("Sent create session request: '{}'", redact_message_fields(&encoded_params, vec!["LS_password"])) );
                                     },
                                     unexpected_message => {
                                         return Err(Box::new(std::io::Error::new(

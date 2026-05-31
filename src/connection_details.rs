@@ -375,7 +375,15 @@ impl Debug for ConnectionDetails {
             .field("server_socket_name", &self.server_socket_name)
             .field("session_id", &self.session_id)
             .field("user", &self.user)
-            .field("password", &self.password)
+            .field(
+                "password",
+                if self.password.is_some() {
+                    &"****"
+                } else {
+                    &self.password
+                },
+            )
+            .field("listeners", &self.listeners)
             .finish()
     }
 }

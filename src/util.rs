@@ -21,6 +21,58 @@ pub fn clean_message(text: &str) -> String {
     result
 }
 
+/// Redacts the contents of the specified fields within a LightStreamer encoded message with "****".
+///
+/// The `encoded` parameter is expected to be a URL-encoded query string (e.g.,
+/// `LS_adapter=DEFAULT&LS_user=john&LS_password=secret`). The function replaces the
+/// values of any fields listed in `fields` with `****`.
+///
+/// This is primarily used to safely log messages that may contain sensitive information
+/// such as passwords or credentials.
+///
+/// # Examples
+///
+/// ```
+/// use lightstreamer_client::util::redact_message_fields;
+///
+/// let input = "LS_adapter=DEFAULT&LS_user=john&LS_password=secret";
+/// let redacted = redact_message_fields(input, vec!["LS_password"]);
+/// assert_eq!(redacted, "LS_adapter=DEFAULT&LS_user=john&LS_password=****");
+/// ```
+pub fn redact_message_fields(encoded: &str, fields: Vec<&str>) -> String {
+    if fields.is_empty() {
+        return encoded.to_string();
+    }
+
+    let mut result = String::new();
+    let pairs: Vec<&str> = encoded.split('&').collect();
+
+    for (i, pair) in pairs.iter().enumerate() {
+        if let Some((key, _)) = pair.split_once('=') {
+            if fields.contains(&key) {
+                if i > 0 {
+                    result.push('&');
+                }
+                result.push_str(key);
+                result.push('=');
+                result.push_str("****");
+            } else {
+                if i > 0 {
+                    result.push('&');
+                }
+                result.push_str(pair);
+            }
+        } else {
+            if i > 0 {
+                result.push('&');
+            }
+            result.push_str(pair);
+        }
+    }
+
+    result
+}
+
 pub fn parse_arguments(input: &str) -> Vec<&str> {
     let mut arguments = Vec::new();
     let mut start = 0;
@@ -179,5 +231,118 @@ mod tests {
         assert_eq!(args[1], "1");
         assert_eq!(args[2], "1");
         assert_eq!(args[3], "{\"price\":100,\"volume\":50}");
+    }
+
+    #[test]
+    fn test_redact_single_field() {
+        let input = "LS_adapter=DEFAULT&LS_user=john&LS_password=secret";
+        let result = redact_message_fields(input, vec!["LS_password"]);
+        assert_eq!(result, "LS_adapter=DEFAULT&LS_user=john&LS_password=****");
+    }
+
+    #[test]
+    fn test_redact_multiple_fields() {
+        let input = "LS_adapter=DEFAULT&LS_user=john&LS_password=secret";
+        let result = redact_message_fields(input, vec!["LS_user", "LS_password"]);
+        assert_eq!(result, "LS_adapter=DEFAULT&LS_user=****&LS_password=****");
+    }
+
+    #[test]
+    fn test_redact_no_match_unchanged() {
+        let input = "LS_adapter=DEFAULT&LS_user=john&LS_password=secret";
+        let result = redact_message_fields(input, vec!["LS_token"]);
+        assert_eq!(result, "LS_adapter=DEFAULT&LS_user=john&LS_password=secret");
+    }
+
+    #[test]
+    fn test_redact_empty_fields_unchanged() {
+        let input = "LS_adapter=DEFAULT&LS_user=john&LS_password=secret";
+        let result = redact_message_fields(input, Vec::<&str>::new());
+        assert_eq!(result, "LS_adapter=DEFAULT&LS_user=john&LS_password=secret");
+    }
+
+    #[test]
+    fn test_redact_empty_input_unchanged() {
+        let result = redact_message_fields("", vec!["LS_password"]);
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn test_redact_first_field() {
+        let input = "LS_password=secret&LS_adapter=DEFAULT";
+        let result = redact_message_fields(input, vec!["LS_password"]);
+        assert_eq!(result, "LS_password=****&LS_adapter=DEFAULT");
+    }
+
+    #[test]
+    fn test_redact_middle_field() {
+        let input = "LS_adapter=DEFAULT&LS_password=secret&LS_user=john";
+        let result = redact_message_fields(input, vec!["LS_password"]);
+        assert_eq!(result, "LS_adapter=DEFAULT&LS_password=****&LS_user=john");
+    }
+
+    #[test]
+    fn test_redact_last_field() {
+        let input = "LS_adapter=DEFAULT&LS_user=john&LS_password=secret";
+        let result = redact_message_fields(input, vec!["LS_password"]);
+        assert_eq!(result, "LS_adapter=DEFAULT&LS_user=john&LS_password=****");
+    }
+
+    #[test]
+    fn test_redact_empty_value() {
+        let input = "LS_adapter=DEFAULT&LS_password=&LS_user=john";
+        let result = redact_message_fields(input, vec!["LS_password"]);
+        assert_eq!(result, "LS_adapter=DEFAULT&LS_password=****&LS_user=john");
+    }
+
+    #[test]
+    fn test_redact_special_chars_in_value() {
+        let input = "LS_adapter=DEFAULT&LS_user=john%40example.com&LS_password=p%40ss";
+        let result = redact_message_fields(input, vec!["LS_password"]);
+        assert_eq!(
+            result,
+            "LS_adapter=DEFAULT&LS_user=john%40example.com&LS_password=****"
+        );
+    }
+
+    #[test]
+    fn test_redact_all_fields() {
+        let input = "LS_adapter=DEFAULT&LS_user=john&LS_password=secret";
+        let result = redact_message_fields(input, vec!["LS_adapter", "LS_user", "LS_password"]);
+        assert_eq!(result, "LS_adapter=****&LS_user=****&LS_password=****");
+    }
+
+    #[test]
+    fn test_redact_single_pair() {
+        let input = "LS_password=secret";
+        let result = redact_message_fields(input, vec!["LS_password"]);
+        assert_eq!(result, "LS_password=****");
+    }
+
+    #[test]
+    fn test_redact_duplicate_field_keys() {
+        let input = "LS_adapter=DEFAULT&LS_password=secret1&LS_password=secret2";
+        let result = redact_message_fields(input, vec!["LS_password"]);
+        assert_eq!(
+            result,
+            "LS_adapter=DEFAULT&LS_password=****&LS_password=****"
+        );
+    }
+
+    #[test]
+    fn test_redact_value_with_equals() {
+        let input = "LS_adapter=DEFAULT&LS_token=a=b=c";
+        let result = redact_message_fields(input, vec!["LS_token"]);
+        assert_eq!(result, "LS_adapter=DEFAULT&LS_token=****");
+    }
+
+    #[test]
+    fn test_redact_case_sensitive() {
+        let input = "LS_adapter=DEFAULT&LS_password=secret&ls_password=visible";
+        let result = redact_message_fields(input, vec!["LS_password"]);
+        assert_eq!(
+            result,
+            "LS_adapter=DEFAULT&LS_password=****&ls_password=visible"
+        );
     }
 }
