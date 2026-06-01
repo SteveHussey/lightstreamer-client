@@ -1,7 +1,7 @@
 use crate::subscription_listener::SubscriptionListener;
 use std::collections::HashMap;
 use std::error::Error;
-use std::fmt::{self, Debug, Formatter};
+use std::fmt::{self, Debug, Display, Formatter};
 use tokio::sync::watch::{self, Receiver, Sender};
 
 /// Enum representing the snapshot delivery preferences to be requested to Lightstreamer Server for the items in the Subscription.
@@ -20,14 +20,15 @@ impl Default for &Snapshot {
     }
 }
 
-impl ToString for Snapshot {
-    fn to_string(&self) -> String {
-        match self {
+impl Display for Snapshot {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let str = match self {
             Snapshot::Yes => "true".to_string(),
             Snapshot::No => "false".to_string(),
             Snapshot::Number(n) => n.to_string(),
             Snapshot::None => "none".to_string(),
-        }
+        };
+        write!(f, "{}", str)
     }
 }
 
@@ -40,14 +41,15 @@ pub enum SubscriptionMode {
     Command,
 }
 
-impl ToString for SubscriptionMode {
-    fn to_string(&self) -> String {
-        match self {
+impl Display for SubscriptionMode {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let str = match self {
             SubscriptionMode::Merge => "MERGE".to_string(),
             SubscriptionMode::Distinct => "DISTINCT".to_string(),
             SubscriptionMode::Raw => "RAW".to_string(),
             SubscriptionMode::Command => "COMMAND".to_string(),
-        }
+        };
+        write!(f, "{}", str)
     }
 }
 
